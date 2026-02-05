@@ -308,6 +308,45 @@ def slide_5_graph_content(mo, graph_input, create_linear_graph):
             Node2 --> Node3[node3]
             Node3 --> END([END])
         """),
+        mo.md(""),
+        mo.md("### Node Definitions"),
+        mo.md("""
+        ```python
+        # Define state structure
+        class SimpleState(TypedDict):
+            input: str
+            step1: str
+            step2: str
+            output: str
+
+        # Node 1: Process input
+        def node1(state: SimpleState) -> dict:
+            return {"step1": f"Step1: {state.get('input', '')}"}
+
+        # Node 2: Process step1
+        def node2(state: SimpleState) -> dict:
+            return {"step2": f"Step2: {state.get('step1', '')}"}
+
+        # Node 3: Generate final output
+        def node3(state: SimpleState) -> dict:
+            return {"output": f"Done: {state.get('step2', '')}"}
+
+        # Build the graph
+        builder = StateGraph(SimpleState)
+        builder.add_node("node1", node1)
+        builder.add_node("node2", node2)
+        builder.add_node("node3", node3)
+
+        # Connect nodes sequentially
+        builder.add_edge("node1", "node2")
+        builder.add_edge("node2", "node3")
+        builder.add_edge("node3", END)
+
+        builder.set_entry_point("node1")
+        graph = builder.compile()
+        ```
+        """),
+        mo.md(""),
         mo.md("### Try It Live!"),
         graph_input,
         mo.md(""),
@@ -357,6 +396,46 @@ It's useful because it enables complex workflows with cycles, conditional branch
         mo.md("## Adding Intelligence: LLM Integration"),
         mo.md("_Integrate language models into your graph nodes._"),
         mo.md(""),
+        mo.md("### LLM Node Definition"),
+        mo.md("""
+        ```python
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import HumanMessage
+
+        # Define state with question and answer
+        class LLMState(TypedDict):
+            question: str
+            answer: str
+
+        # Node that calls LLM
+        def llm_node(state: LLMState) -> dict:
+            # Initialize the LLM
+            llm = ChatOpenAI(model="gpt-4", temperature=0.7)
+
+            # Get question from state
+            question = state["question"]
+
+            # Call the LLM
+            response = llm.invoke([HumanMessage(content=question)])
+
+            # Return answer to update state
+            return {"answer": response.content}
+
+        # Build the graph
+        builder = StateGraph(LLMState)
+        builder.add_node("llm", llm_node)
+        builder.set_entry_point("llm")
+        builder.add_edge("llm", END)
+
+        graph = builder.compile()
+
+        # Run it
+        result = graph.invoke({"question": "What is LangGraph?"})
+        print(result["answer"])
+        ```
+        """),
+        mo.md(""),
+        mo.md("### Try It!"),
         mo.hstack([mock_mode_llm, mo.md(f"_{'Mock mode' if mock_mode_llm.value else 'Real OpenAI API'}_")]),
         question_llm,
         mo.md(""),
@@ -550,7 +629,7 @@ def slide_10_multi_tool_content(mo, tool_selector, tool_input_field, create_mult
     except Exception as e:
         output = f"Error: {str(e)}"
 
-    return mo.vstack([
+    mo.vstack([
         mo.md("## Example 1: Enhanced Multi-Tool Routing"),
         mo.md("_Conditional routing with 4 different tools - the graph routes to the selected tool._"),
         mo.md(""),
@@ -651,7 +730,7 @@ def slide_11_llm_agent_content(mo, agent_question, use_mock_agent, create_llm_to
         tool_result_agent = ""
         final_answer = f"Error: {str(e)}"
 
-    return mo.vstack([
+    mo.vstack([
         mo.md("## Example 2: LLM Agent with Dynamic Tool Selection"),
         mo.md("_The LLM analyzes your question and automatically chooses the appropriate tool._"),
         mo.md(""),
@@ -762,7 +841,7 @@ def slide_12_multi_step_content(mo, complex_question, max_iterations, use_mock_m
         synthesis = ""
         iteration_count = 0
 
-    return mo.vstack([
+    mo.vstack([
         mo.md("## Example 3: Multi-Step Reasoning Workflow"),
         mo.md("_Complex questions are broken down into steps, researched iteratively, then synthesized._"),
         mo.md(""),
@@ -881,7 +960,7 @@ def slide_13_multi_agent_content(mo, topic_input, max_revisions, use_mock_agents
         revision_count = 0
         approved = False
 
-    return mo.vstack([
+    mo.vstack([
         mo.md("## Example 4: Multi-Agent Collaboration"),
         mo.md("_Two LLMs with different roles (Writer & Critic) collaborate to produce quality content._"),
         mo.md(""),
