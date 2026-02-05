@@ -29,12 +29,39 @@ class ReActState(TypedDict):
     final_answer: str
 
 
-class DataPipelineState(TypedDict):
-    """State for data analysis pipeline."""
-    data: pd.DataFrame | None
-    stats: dict | None
-    insights: str
-    chart_data: dict | None
+class MultiToolState(TypedDict):
+    """State for multi-tool routing example."""
+    input: str
+    selected_tool: str
+    output: str
+
+
+class LLMAgentState(TypedDict):
+    """State for LLM agent with tool selection."""
+    question: str
+    tool_to_use: str
+    tool_result: str
+    final_answer: str
+
+
+class MultiStepState(TypedDict):
+    """State for multi-step reasoning workflow."""
+    question: str
+    plan: str
+    research_notes: Annotated[list, operator.add]
+    synthesis: str
+    iteration_count: int
+    max_iterations: int
+
+
+class MultiAgentState(TypedDict):
+    """State for multi-agent collaboration."""
+    topic: str
+    draft: str
+    critic_feedback: Annotated[list, operator.add]
+    revision_count: int
+    max_revisions: int
+    approved: bool
 
 
 # Helper functions for graph construction
@@ -168,148 +195,529 @@ def create_react_graph(max_iter: int = 3, mock_mode: bool = True):
     return builder.compile()
 
 
-def create_data_pipeline(mock_mode: bool = True, sample_data_path: str = None):
+def create_multi_tool_graph():
     """
-    Create a 4-node data analysis pipeline.
+    Create a multi-tool routing graph with 4 different tools.
 
-    Graph: load_data -> analyze -> generate_insights -> visualize -> END
+    Graph: router → [calculator | string_reverser | word_counter | text_transformer] → END
+    """
+
+    @tool
+    def calculator(expression: str) -> str:
+        """Evaluate a mathematical expression."""
+        try:
+            # Warning: eval is unsafe in production - for demo only
+            result = eval(expression)
+            return str(result)
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    @tool
+    def string_reverser(text: str) -> str:
+        """Reverse a string."""
+        return text[::-1]
+
+    @tool
+    def word_counter(text: str) -> str:
+        """Count words and characters in text."""
+        words = len(text.split())
+        chars = len(text)
+        return f"Words: {words}, Characters: {chars}"
+
+    @tool
+    def text_transformer(text: str) -> str:
+        """Transform text to different cases."""
+        return f"Upper: {text.upper()} | Lower: {text.lower()} | Title: {text.title()}"
+
+    def router_node(state: MultiToolState) -> dict:
+        """Router passes through the selected tool."""
+        return {}
+
+    def calculator_node(state: MultiToolState) -> dict:
+        """Execute calculator tool."""
+        result = calculator.invoke({"expression": state["input"]})
+        return {"output": result}
+
+    def string_reverser_node(state: MultiToolState) -> dict:
+        """Execute string reverser tool."""
+        result = string_reverser.invoke({"text": state["input"]})
+        return {"output": result}
+
+    def word_counter_node(state: MultiToolState) -> dict:
+        """Execute word counter tool."""
+        result = word_counter.invoke({"text": state["input"]})
+        return {"output": result}
+
+    def text_transformer_node(state: MultiToolState) -> dict:
+        """Execute text transformer tool."""
+        result = text_transformer.invoke({"text": state["input"]})
+        return {"output": result}
+
+    def route_to_tool(state: MultiToolState) -> str:
+        """Route based on selected tool."""
+        return state["selected_tool"]
+
+    # Build the graph
+    builder = StateGraph(MultiToolState)
+    builder.add_node("router", router_node)
+    builder.add_node("calculator_node", calculator_node)
+    builder.add_node("string_reverser_node", string_reverser_node)
+    builder.add_node("word_counter_node", word_counter_node)
+    builder.add_node("text_transformer_node", text_transformer_node)
+
+    # Set entry point
+    builder.set_entry_point("router")
+
+    # Add conditional edges from router
+    builder.add_conditional_edges(
+        "router",
+        route_to_tool,
+        {
+            "calculator": "calculator_node",
+            "string_reverser": "string_reverser_node",
+            "word_counter": "word_counter_node",
+            "text_transformer": "text_transformer_node"
+        }
+    )
+
+    # All tools lead to END
+    builder.add_edge("calculator_node", END)
+    builder.add_edge("string_reverser_node", END)
+    builder.add_edge("word_counter_node", END)
+    builder.add_edge("text_transformer_node", END)
+
+    return builder.compile()
+
+
+def create_llm_tool_agent(mock_mode: bool = True):
+    """
+    Create an LLM agent that dynamically selects the appropriate tool.
+
+    Graph: classify → should_use_tool? → [execute_tool → format_response | direct_response] → END
 
     Args:
         mock_mode: If True, use mock LLM responses
-        sample_data_path: Path to CSV file (if None, creates sample data)
     """
 
-    def load_data(state: DataPipelineState) -> dict:
-        """Load data from CSV file."""
-        if sample_data_path and os.path.exists(sample_data_path):
-            df = pd.read_csv(sample_data_path)
-        else:
-            # Create sample data if file doesn't exist
-            import numpy as np
-            from datetime import datetime, timedelta
+    @tool
+    def calculator(expression: str) -> str:
+        """Evaluate a mathematical expression."""
+        try:
+            result = eval(expression)
+            return str(result)
+        except Exception as e:
+            return f"Error: {str(e)}"
 
-            dates = [datetime(2024, 1, 1) + timedelta(days=i) for i in range(60)]
-            products = ['Widget A', 'Widget B', 'Widget C', 'Gadget X', 'Gadget Y']
-            regions = ['North', 'South', 'East', 'West']
+    @tool
+    def string_reverser(text: str) -> str:
+        """Reverse a string."""
+        return text[::-1]
 
-            data = []
-            np.random.seed(42)
-            for date in dates:
-                for _ in range(3):
-                    data.append({
-                        'date': date.strftime('%Y-%m-%d'),
-                        'product': np.random.choice(products),
-                        'region': np.random.choice(regions),
-                        'revenue': np.random.uniform(100, 1000),
-                        'quantity': np.random.randint(1, 20)
-                    })
+    @tool
+    def word_counter(text: str) -> str:
+        """Count words and characters."""
+        words = len(text.split())
+        chars = len(text)
+        return f"Words: {words}, Characters: {chars}"
 
-            df = pd.DataFrame(data)
+    @tool
+    def text_transformer(text: str) -> str:
+        """Transform text case."""
+        return f"Upper: {text.upper()} | Lower: {text.lower()} | Title: {text.title()}"
 
-        return {"data": df}
-
-    def analyze(state: DataPipelineState) -> dict:
-        """Calculate descriptive statistics."""
-        df = state.get("data")
-        if df is None or df.empty:
-            return {"stats": {}}
-
-        stats = {
-            "total_revenue": float(df["revenue"].sum()),
-            "avg_revenue": float(df["revenue"].mean()),
-            "median_revenue": float(df["revenue"].median()),
-            "total_quantity": int(df["quantity"].sum()),
-            "num_transactions": len(df),
-            "top_product": df.groupby("product")["revenue"].sum().idxmax(),
-            "top_product_revenue": float(df.groupby("product")["revenue"].sum().max()),
-            "top_region": df.groupby("region")["revenue"].sum().idxmax(),
-            "date_range": (str(df["date"].min()), str(df["date"].max()))
-        }
-
-        return {"stats": stats}
-
-    def generate_insights(state: DataPipelineState) -> dict:
-        """Use LLM to generate insights from statistics."""
-        stats = state.get("stats", {})
-
-        if not stats:
-            return {"insights": "No data to analyze."}
+    def classify_node(state: LLMAgentState) -> dict:
+        """LLM classifies the question and selects tool."""
+        question = state["question"]
 
         if mock_mode:
-            # Mock insights
-            insights = f"""
-## Key Insights from Data Analysis
-
-**Revenue Performance:**
-- Total revenue generated: ${stats['total_revenue']:,.2f}
-- Average transaction value: ${stats['avg_revenue']:.2f}
-- Median transaction value: ${stats['median_revenue']:.2f}
-
-**Top Performers:**
-- Best product: **{stats['top_product']}** with ${stats['top_product_revenue']:,.2f} in revenue
-- Best region: **{stats['top_region']}**
-
-**Activity:**
-- Total transactions: {stats['num_transactions']}
-- Total units sold: {stats['total_quantity']}
-- Data period: {stats['date_range'][0]} to {stats['date_range'][1]}
-
-**Recommendations:**
-1. Focus marketing efforts on {stats['top_product']} as it's the top revenue generator
-2. Investigate opportunities to replicate {stats['top_region']}'s success in other regions
-3. Consider bundling strategies to increase average transaction value
-"""
+            # Mock classification logic
+            q_lower = question.lower()
+            if any(op in question for op in ['+', '-', '*', '/', 'calculate', 'compute']):
+                tool_name = "calculator"
+            elif 'reverse' in q_lower:
+                tool_name = "string_reverser"
+            elif 'count' in q_lower or 'words' in q_lower or 'characters' in q_lower:
+                tool_name = "word_counter"
+            elif any(word in q_lower for word in ['upper', 'lower', 'case', 'title', 'transform']):
+                tool_name = "text_transformer"
+            else:
+                tool_name = "none"
         else:
-            # Real LLM insights
-            import json
-            llm = ChatOpenAI(model="gpt-4", temperature=0.7)
-            prompt = f"""
-You are a data analyst. Analyze these sales statistics and provide 3-5 key insights
-with actionable recommendations. Be specific and data-driven.
+            # Real LLM classification
+            llm = ChatOpenAI(model="gpt-4")
+            prompt = f"""Analyze this question and choose the best tool:
 
-Statistics:
-{json.dumps(stats, indent=2, default=str)}
+Question: {question}
 
-Format your response in markdown with clear sections.
-"""
+Tools available:
+- calculator: for math calculations
+- string_reverser: to reverse text
+- word_counter: to count words/characters
+- text_transformer: to change text case
+- none: if no tool needed
+
+Respond with ONLY the tool name."""
+
             response = llm.invoke([HumanMessage(content=prompt)])
-            insights = response.content
+            tool_name = response.content.strip().lower()
 
-        return {"insights": insights}
+        return {"tool_to_use": tool_name}
 
-    def visualize(state: DataPipelineState) -> dict:
-        """Prepare data for visualization."""
-        df = state.get("data")
-        if df is None or df.empty:
-            return {"chart_data": {}}
+    def execute_tool_node(state: LLMAgentState) -> dict:
+        """Execute the selected tool."""
+        tool_name = state["tool_to_use"]
+        question = state["question"]
 
-        # Aggregate data for charts
-        product_revenue = df.groupby("product")["revenue"].sum().reset_index()
-        product_revenue = product_revenue.sort_values("revenue", ascending=False)
+        # Extract the relevant input from the question
+        if tool_name == "calculator":
+            # Extract math expression
+            import re
+            math_pattern = r'[\d\s\+\-\*\/\(\)\.]+'
+            matches = re.findall(math_pattern, question)
+            input_val = matches[0] if matches else question
+            result = calculator.invoke({"expression": input_val})
+        elif tool_name == "string_reverser":
+            # Extract text to reverse
+            words = question.split()
+            input_val = words[-1] if words else question
+            result = string_reverser.invoke({"text": input_val})
+        elif tool_name == "word_counter":
+            # Extract text after "in:"
+            if "in:" in question.lower():
+                input_val = question.split("in:", 1)[1].strip()
+            else:
+                input_val = question
+            result = word_counter.invoke({"text": input_val})
+        elif tool_name == "text_transformer":
+            # Extract text to transform
+            words = question.split()
+            input_val = words[-1] if len(words) > 1 else question
+            result = text_transformer.invoke({"text": input_val})
+        else:
+            result = "No tool selected"
 
-        region_revenue = df.groupby("region")["revenue"].sum().reset_index()
+        return {"tool_result": result}
 
-        chart_data = {
-            "product_revenue": product_revenue.to_dict(orient="records"),
-            "region_revenue": region_revenue.to_dict(orient="records"),
-        }
+    def format_response_node(state: LLMAgentState) -> dict:
+        """Format the final response."""
+        tool_result = state.get("tool_result", "")
+        if tool_result:
+            answer = f"Using {state['tool_to_use']}: {tool_result}"
+        else:
+            answer = "I can help with calculations, text reversal, word counting, or text transformation. Please ask a specific question!"
+        return {"final_answer": answer}
 
-        return {"chart_data": chart_data}
+    def direct_response_node(state: LLMAgentState) -> dict:
+        """Provide direct response without tool."""
+        return {"final_answer": "I can help with calculations, text reversal, word counting, or text transformation. Please ask a specific question!"}
+
+    def should_use_tool(state: LLMAgentState) -> str:
+        """Decide whether to use a tool or respond directly."""
+        valid_tools = ["calculator", "string_reverser", "word_counter", "text_transformer"]
+        if state["tool_to_use"] in valid_tools:
+            return "use_tool"
+        return "direct_response"
 
     # Build the graph
-    builder = StateGraph(DataPipelineState)
-    builder.add_node("load_data", load_data)
-    builder.add_node("analyze", analyze)
-    builder.add_node("generate_insights", generate_insights)
-    builder.add_node("visualize", visualize)
-
-    # Add edges
-    builder.add_edge("load_data", "analyze")
-    builder.add_edge("analyze", "generate_insights")
-    builder.add_edge("generate_insights", "visualize")
-    builder.add_edge("visualize", END)
+    builder = StateGraph(LLMAgentState)
+    builder.add_node("classify", classify_node)
+    builder.add_node("execute_tool", execute_tool_node)
+    builder.add_node("format_response", format_response_node)
+    builder.add_node("direct_response", direct_response_node)
 
     # Set entry point
-    builder.set_entry_point("load_data")
+    builder.set_entry_point("classify")
+
+    # Conditional routing based on classification
+    builder.add_conditional_edges(
+        "classify",
+        should_use_tool,
+        {
+            "use_tool": "execute_tool",
+            "direct_response": "direct_response"
+        }
+    )
+
+    # Tool execution leads to formatting
+    builder.add_edge("execute_tool", "format_response")
+
+    # Both paths lead to END
+    builder.add_edge("format_response", END)
+    builder.add_edge("direct_response", END)
+
+    return builder.compile()
+
+
+def create_multi_step_workflow(mock_mode: bool = True, max_iter: int = 3):
+    """
+    Create a multi-step reasoning workflow.
+
+    Graph: plan → research → synthesize → should_continue? → [research (loop) | END]
+
+    Args:
+        mock_mode: If True, use mock LLM responses
+        max_iter: Maximum iterations
+    """
+
+    def plan_node(state: MultiStepState) -> dict:
+        """Break question into research steps."""
+        question = state["question"]
+
+        if mock_mode:
+            plan = f"""Research Plan for: "{question}"
+
+1. Define core concepts and terminology
+2. Identify key applications and examples
+3. Analyze benefits and limitations"""
+        else:
+            llm = ChatOpenAI(model="gpt-4")
+            prompt = f"""Break this complex question into 3 specific research steps:
+
+Question: {question}
+
+Return ONLY a numbered list of research steps."""
+
+            response = llm.invoke([HumanMessage(content=prompt)])
+            plan = response.content
+
+        return {"plan": plan, "iteration_count": 0}
+
+    def research_node(state: MultiStepState) -> dict:
+        """Research the next step."""
+        plan = state["plan"]
+        iteration = state["iteration_count"]
+
+        if mock_mode:
+            research_notes = [
+                "Core concepts researched: Key definitions and foundational principles identified.",
+                "Applications found: Multiple real-world use cases across different industries.",
+                "Analysis complete: Strengths and weaknesses documented with evidence."
+            ]
+            note = research_notes[min(iteration, len(research_notes) - 1)]
+        else:
+            llm = ChatOpenAI(model="gpt-4")
+            steps = [s.strip() for s in plan.split('\n') if s.strip() and s[0].isdigit()]
+
+            if iteration < len(steps):
+                step = steps[iteration]
+                prompt = f"Research this step thoroughly: {step}"
+                response = llm.invoke([HumanMessage(content=prompt)])
+                note = response.content
+            else:
+                note = "Research step completed."
+
+        return {
+            "research_notes": [note],
+            "iteration_count": iteration + 1
+        }
+
+    def synthesize_node(state: MultiStepState) -> dict:
+        """Synthesize research into final answer."""
+        question = state["question"]
+        notes = state.get("research_notes", [])
+
+        if mock_mode:
+            synthesis = f"""Based on comprehensive research:
+
+{question}
+
+**Summary:** The research reveals multiple interconnected aspects with practical implications across various domains. The evidence suggests significant potential with some notable considerations for implementation.
+
+**Key Findings:**
+{chr(10).join(f'- {note}' for note in notes)}
+
+**Conclusion:** The analysis demonstrates clear value propositions while acknowledging areas requiring careful attention."""
+        else:
+            llm = ChatOpenAI(model="gpt-4")
+            notes_text = "\n".join(f"{i+1}. {note}" for i, note in enumerate(notes))
+            prompt = f"""Synthesize these research notes into a comprehensive answer:
+
+Question: {question}
+
+Research Notes:
+{notes_text}
+
+Provide a well-structured, complete answer."""
+
+            response = llm.invoke([HumanMessage(content=prompt)])
+            synthesis = response.content
+
+        return {"synthesis": synthesis}
+
+    def should_continue(state: MultiStepState) -> str:
+        """Decide whether to continue research."""
+        iteration = state["iteration_count"]
+        max_iterations = state["max_iterations"]
+
+        # Continue if under max and haven't researched all steps
+        if iteration < max_iterations and iteration < 3:
+            return "research"
+        return "finish"
+
+    # Build the graph
+    builder = StateGraph(MultiStepState)
+    builder.add_node("plan", plan_node)
+    builder.add_node("research", research_node)
+    builder.add_node("synthesize", synthesize_node)
+
+    # Set entry point
+    builder.set_entry_point("plan")
+
+    # Linear flow with loop
+    builder.add_edge("plan", "research")
+    builder.add_edge("research", "synthesize")
+
+    # Conditional edge for loop
+    builder.add_conditional_edges(
+        "synthesize",
+        should_continue,
+        {
+            "research": "research",
+            "finish": END
+        }
+    )
+
+    return builder.compile()
+
+
+def create_multi_agent_graph(mock_mode: bool = True, max_revisions: int = 2):
+    """
+    Create a multi-agent collaboration graph (Writer + Critic).
+
+    Graph: writer_draft → critic_review → should_revise? → [writer_revise → critic_review (loop) | END]
+
+    Args:
+        mock_mode: If True, use mock LLM responses
+        max_revisions: Maximum number of revisions
+    """
+
+    def writer_draft_node(state: MultiAgentState) -> dict:
+        """Writer agent creates initial draft."""
+        topic = state["topic"]
+
+        if mock_mode:
+            draft = f"""# {topic}
+
+LangGraph is a powerful framework for building stateful, multi-agent applications. It provides several key advantages:
+
+**Flexible Workflows:** Unlike linear chains, LangGraph supports cycles and conditional branching, enabling complex decision-making patterns.
+
+**State Management:** Built-in state handling makes it easy to maintain context across multiple steps, with typed state definitions for clarity.
+
+**Production Ready:** The framework includes features like checkpointing, streaming, and error handling that are essential for real-world applications."""
+        else:
+            llm = ChatOpenAI(model="gpt-4", temperature=0.7)
+            prompt = f"""You are a technical writer. Write a clear, concise explanation about:
+
+Topic: {topic}
+
+Write 2-3 paragraphs. Be accurate and engaging."""
+
+            draft = llm.invoke([HumanMessage(content=prompt)]).content
+
+        return {"draft": draft, "revision_count": 0}
+
+    def critic_review_node(state: MultiAgentState) -> dict:
+        """Critic agent reviews the draft."""
+        draft = state["draft"]
+
+        if mock_mode:
+            # Mock: Approve on second iteration, give feedback on first
+            revision_count = state.get("revision_count", 0)
+            if revision_count > 0:
+                feedback = "APPROVED: The revised draft is excellent. Clear structure, accurate information, and good examples."
+                approved = True
+            else:
+                feedback = "Good start, but please add specific examples of how to use LangGraph and mention its integration with LangChain."
+                approved = False
+        else:
+            llm = ChatOpenAI(model="gpt-4", temperature=0.3)
+            prompt = f"""You are a critic reviewing technical content.
+
+Draft: {draft}
+
+Provide either:
+1. "APPROVED" if the draft is excellent
+2. Specific, actionable feedback for improvement
+
+Keep feedback concise and constructive."""
+
+            feedback = llm.invoke([HumanMessage(content=prompt)]).content
+            approved = "APPROVED" in feedback.upper()
+
+        return {
+            "critic_feedback": [feedback],
+            "approved": approved
+        }
+
+    def writer_revise_node(state: MultiAgentState) -> dict:
+        """Writer agent revises based on feedback."""
+        draft = state["draft"]
+        feedback_list = state.get("critic_feedback", [])
+        latest_feedback = feedback_list[-1] if feedback_list else ""
+
+        if mock_mode:
+            # Mock revision
+            revised = f"""# {state['topic']}
+
+LangGraph is a powerful framework for building stateful, multi-agent applications. It provides several key advantages:
+
+**Flexible Workflows:** Unlike linear chains, LangGraph supports cycles and conditional branching, enabling complex decision-making patterns.
+
+**State Management:** Built-in state handling makes it easy to maintain context across multiple steps, with typed state definitions for clarity.
+
+**Practical Example:** To build a simple graph, you define a state TypedDict, create nodes as functions, and connect them with edges. For instance, you can create a ReAct agent that reasons, acts with tools, and observes results in a loop.
+
+**Production Ready:** The framework integrates seamlessly with LangChain's ecosystem of LLMs and tools, while adding features like checkpointing, streaming, and error handling essential for real-world applications."""
+        else:
+            llm = ChatOpenAI(model="gpt-4", temperature=0.7)
+            prompt = f"""Revise your draft based on this feedback:
+
+Original Draft: {draft}
+
+Feedback: {latest_feedback}
+
+Write an improved version addressing the feedback."""
+
+            revised = llm.invoke([HumanMessage(content=prompt)]).content
+
+        return {
+            "draft": revised,
+            "revision_count": state["revision_count"] + 1,
+            "approved": False  # Reset approval status
+        }
+
+    def should_revise(state: MultiAgentState) -> str:
+        """Decide whether to revise or finish."""
+        if state.get("approved", False):
+            return "finish"
+        elif state.get("revision_count", 0) >= state.get("max_revisions", max_revisions):
+            return "finish"
+        return "revise"
+
+    # Build the graph
+    builder = StateGraph(MultiAgentState)
+    builder.add_node("writer_draft", writer_draft_node)
+    builder.add_node("critic_review", critic_review_node)
+    builder.add_node("writer_revise", writer_revise_node)
+
+    # Set entry point
+    builder.set_entry_point("writer_draft")
+
+    # Linear flow to first review
+    builder.add_edge("writer_draft", "critic_review")
+
+    # Conditional edge for revision loop
+    builder.add_conditional_edges(
+        "critic_review",
+        should_revise,
+        {
+            "revise": "writer_revise",
+            "finish": END
+        }
+    )
+
+    # Revised draft goes back to critic
+    builder.add_edge("writer_revise", "critic_review")
 
     return builder.compile()

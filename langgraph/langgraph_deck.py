@@ -25,14 +25,13 @@ def setup_imports():
     # Add examples directory to path
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'examples'))
 
-    from graph_helpers import create_linear_graph, create_react_graph, create_data_pipeline
-    from visualization import (
-        create_revenue_chart,
-        create_product_comparison,
-        create_region_chart,
-        create_time_series,
-        format_state_display,
-        create_stats_table
+    from graph_helpers import (
+        create_linear_graph,
+        create_react_graph,
+        create_multi_tool_graph,
+        create_llm_tool_agent,
+        create_multi_step_workflow,
+        create_multi_agent_graph
     )
 
     # Load environment variables silently
@@ -43,68 +42,57 @@ def setup_imports():
     return (
         mo, os, load_dotenv, StateGraph, END, HumanMessage, AIMessage,
         ChatOpenAI, tool, TypedDict, Annotated, operator, pd, px, go, io,
-        create_linear_graph, create_react_graph, create_data_pipeline,
-        create_revenue_chart, create_product_comparison, create_region_chart,
-        create_time_series, format_state_display, create_stats_table
+        create_linear_graph, create_react_graph,
+        create_multi_tool_graph, create_llm_tool_agent,
+        create_multi_step_workflow, create_multi_agent_graph
     )
 
 
 @app.cell
 def slide_1_introduction(mo):
     """Cell 1: Introduction - What is LangGraph and why it matters."""
+    mo.md("""
+    # LangGraph: Building Stateful AI Agents
 
-    chain_graph = mo.mermaid("""
-    graph LR
-        A[Input] --> B[LLM]
-        B --> C[Tool]
-        C --> D[LLM]
-        D --> E[Output]
-        style A fill:#e1f5ff
-        style E fill:#e1f5ff
+    ## From Linear Chains to Intelligent Graphs
+
+    ### What is LangGraph?
+
+    **LangGraph** is a framework for building **stateful, multi-agent AI applications** using directed graphs.
+    Unlike simple chains (sequential DAGs), graphs enable:
+
+    - **Cycles**: Loops and iterative refinement
+    - **Conditional Logic**: Dynamic routing based on state
+    - **Complex Workflows**: Multi-step processes with branching
+    - **State Management**: Persistent memory across steps
+
+    ### Why Graphs > Chains?
+
+    | **Chains (DAGs)** | **Graphs (LangGraph)** |
+    |-------------------|------------------------|
+    | Linear execution only | Cycles and loops supported |
+    | No conditional branching | Dynamic routing |
+    | Limited state management | Rich, typed state |
+    | Simple workflows | Complex, adaptive workflows |
+
+    ### Visual Comparison
+
+    **Chain (DAG):**
+    ```
+    Input → LLM → Tool → LLM → Output
+    ```
+
+    **Graph (LangGraph):**
+    ```
+    Input → Classify → [Route A] → Process → Decide → [Loop back or End]
+                     ↓                              ↑
+                   [Route B] → Analyze ────────────┘
+    ```
+
+    ---
+
+    **Let's dive into the core concepts!**
     """)
-
-    langgraph_diagram = mo.mermaid("""
-    graph LR
-        A[Input] --> B[Classify]
-        B -->|Route A| C[Process]
-        B -->|Route B| D[Analyze]
-        C --> E{Decide}
-        D --> E
-        E -->|Loop| B
-        E -->|End| F[Output]
-        style A fill:#e1f5ff
-        style F fill:#e1f5ff
-        style E fill:#fff4e1
-    """)
-
-    mo.vstack([
-        mo.md("# LangGraph: Building Stateful AI Agents"),
-        mo.md("## From Linear Chains to Intelligent Graphs"),
-        mo.md(""),
-        mo.md("""
-        **LangGraph** is a framework for building **stateful, multi-agent AI applications** using directed graphs.
-        Unlike simple chains (sequential DAGs), graphs enable:
-
-        - **Cycles**: Loops and iterative refinement
-        - **Conditional Logic**: Dynamic routing based on state
-        - **Complex Workflows**: Multi-step processes with branching
-        - **State Management**: Persistent memory across steps
-        """),
-        mo.md("### Why Graphs > Chains?"),
-        mo.md(""),
-        mo.hstack([
-            mo.vstack([
-                mo.md("**Chain (DAG):**"),
-                chain_graph,
-                mo.md("_Linear execution only_")
-            ]),
-            mo.vstack([
-                mo.md("**Graph (LangGraph):**"),
-                langgraph_diagram,
-                mo.md("_Cycles & conditional branching_")
-            ])
-        ], justify="space-around")
-    ])
 
 
 @app.cell
@@ -187,41 +175,24 @@ def slide_2_state_content(mo, state_tabs):
 def slide_3_nodes_ui(mo):
     """Cell 3a: Nodes - Create UI elements."""
     node_input = mo.ui.text(value="Hello LangGraph", label="Input value:")
-
-    # Editable node code
-    node_code = mo.ui.text_area(
-        value="""def process_node(state):
-    input_val = state.get("input", "")
-    # Modify this line to change behavior!
-    processed = input_val.upper() + " - PROCESSED!"
-    return {"output": processed}""",
-        label="Edit the node code:",
-        rows=6
-    )
-
-    return node_input, node_code
+    return node_input,
 
 
 @app.cell
-def slide_3_nodes_content(mo, node_input, node_code, TypedDict):
+def slide_3_nodes_content(mo, node_input, TypedDict):
     """Cell 3b: Nodes - Display node processing."""
 
     class ExampleState(TypedDict):
         input: str
         output: str
 
-    # Execute user's code
-    try:
-        exec_globals = {}
-        exec(node_code.value, exec_globals)
-        process_node = exec_globals['process_node']
+    def process_node(state: ExampleState) -> dict:
+        input_val = state.get("input", "")
+        processed = input_val.upper() + " - Processed by node!"
+        return {"output": processed}
 
-        state_val = {"input": node_input.value}
-        result_val = process_node(state_val)
-        error_msg = None
-    except Exception as e:
-        result_val = {"output": f"Error: {str(e)}"}
-        error_msg = str(e)
+    state_val = {"input": node_input.value}
+    result_val = process_node(state_val)
 
     mo.vstack([
         mo.md("## Nodes: The Workers of Your Graph"),
@@ -235,34 +206,16 @@ def slide_3_nodes_content(mo, node_input, node_code, TypedDict):
         2. Performs some work (call LLM, process data, use tools)
         3. Returns a dictionary with state updates
 
-        ### 🎨 Interactive Demo: Modify the Code!
-
-        Try changing the node code below. For example:
-        - Change `upper()` to `lower()`
-        - Add `[::-1]` to reverse the string
-        - Concatenate different text
+        ### Try It Live!
+        Change the input below and see how the node processes it:
         """),
-        mo.md(""),
-        node_code,
         mo.md(""),
         node_input,
         mo.md(""),
-        mo.callout(f"**Error:** {error_msg}", kind="warn") if error_msg else mo.md(""),
         mo.md(f"""
-        **Input State:**
-        ```python
-        {{"input": "{node_input.value}"}}
-        ```
+        **Input:** `{node_input.value}`
 
-        **Node Processing:**
-        ```python
-        {node_code.value}
-        ```
-
-        **Output State:**
-        ```python
-        {{"output": "{result_val['output']}"}}
-        ```
+        **Output:** `{result_val['output']}`
         """),
         mo.callout(
             "**Key Point**: Nodes don't modify state directly - they return updates that LangGraph merges into state.",
@@ -285,90 +238,36 @@ def slide_4_edges_ui(mo):
 def slide_4_edges_content(mo, edge_tabs):
     """Cell 4b: Edges - Display content based on selection."""
 
-    fixed_diagram = mo.mermaid("""
-    graph LR
-        A[Node A] --> B[Node B]
-        B --> C[Node C]
-        C --> D[END]
-        style A fill:#90EE90
-        style B fill:#87CEEB
-        style C fill:#FFB6C1
-        style D fill:#FFE4B5
+    fixed_ex = mo.md("""
+    ### Fixed Edges
+    **Always go to the same next node** - simple sequential flow.
+
+    ```python
+    builder.add_edge("node_a", "node_b")
+    builder.add_edge("node_b", "node_c")
+    ```
+
+    **Use Cases:** Simple pipelines, sequential processing
     """)
 
-    fixed_ex = mo.vstack([
-        mo.md("### Fixed Edges"),
-        mo.md("**Always go to the same next node** - simple sequential flow."),
-        mo.md(""),
-        fixed_diagram,
-        mo.md(""),
-        mo.md("""
-        **Code:**
-        ```python
-        builder = StateGraph(MyState)
-        builder.add_node("node_a", node_a_func)
-        builder.add_node("node_b", node_b_func)
-        builder.add_node("node_c", node_c_func)
+    conditional_ex = mo.md("""
+    ### Conditional Edges
+    **Route based on state** - dynamic decision making!
 
-        # Fixed edges - always go to next node
-        builder.add_edge("node_a", "node_b")
-        builder.add_edge("node_b", "node_c")
-        builder.add_edge("node_c", END)
-        ```
+    ```python
+    def router(state):
+        if state["type"] == "math":
+            return "calculator"
+        return "llm"
 
-        **Use Cases:** Simple pipelines, sequential processing
-        """)
-    ])
+    builder.add_conditional_edges("classify", router, {
+        "calculator": "calculator",
+        "llm": "llm"
+    })
+    ```
 
-    conditional_diagram = mo.mermaid("""
-    graph LR
-        A[Classify] --> B{Router}
-        B -->|Math| C[Calculator]
-        B -->|General| D[LLM]
-        C --> E[END]
-        D --> E
-        style A fill:#90EE90
-        style B fill:#FFE4B5
-        style C fill:#87CEEB
-        style D fill:#FFB6C1
-        style E fill:#D3D3D3
+    **Use Cases:** Intelligent routing, decision trees, adaptive workflows
     """)
-
-    conditional_ex = mo.vstack([
-        mo.md("### Conditional Edges"),
-        mo.md("**Route based on state** - dynamic decision making!"),
-        mo.md(""),
-        conditional_diagram,
-        mo.md(""),
-        mo.md("""
-        **Code:**
-        ```python
-        def router(state: MyState) -> str:
-            \"\"\"Decide where to go next based on state.\"\"\"
-            if state["question_type"] == "math":
-                return "calculator"
-            else:
-                return "llm"
-
-        builder = StateGraph(MyState)
-        builder.add_node("classify", classify_func)
-        builder.add_node("calculator", calc_func)
-        builder.add_node("llm", llm_func)
-
-        # Conditional edge - routes based on router function
-        builder.add_conditional_edges(
-            "classify",
-            router,  # Function returns next node name
-            {
-                "calculator": "calculator",
-                "llm": "llm"
-            }
-        )
-        ```
-
-        **Use Cases:** Intelligent routing, decision trees, adaptive workflows
-        """)
-    ])
 
     mo.vstack([
         mo.md("## Edges: Connecting the Flow"),
@@ -384,87 +283,32 @@ def slide_4_edges_content(mo, edge_tabs):
 def slide_5_graph_ui(mo):
     """Cell 5a: First Graph - Create UI elements."""
     graph_input = mo.ui.text(value="Hello LangGraph", label="Graph Input:")
-
-    # Let users modify node behavior
-    node1_transform = mo.ui.text(value="Step1", label="Node1 prefix:")
-    node2_transform = mo.ui.text(value="Step2", label="Node2 prefix:")
-
-    return graph_input, node1_transform, node2_transform
+    return graph_input,
 
 
 @app.cell
-def slide_5_graph_content(mo, graph_input, node1_transform, node2_transform, StateGraph, END, TypedDict):
+def slide_5_graph_content(mo, graph_input, create_linear_graph):
     """Cell 5b: First Graph - Execute and display."""
 
-    class SimpleState(TypedDict):
-        input: str
-        step1: str
-        step2: str
-        output: str
-
-    # Define nodes with user-configurable behavior
-    def node1(state: SimpleState) -> dict:
-        return {"step1": f"{node1_transform.value}: {state.get('input', '')}"}
-
-    def node2(state: SimpleState) -> dict:
-        return {"step2": f"{node2_transform.value}: {state.get('step1', '')}"}
-
-    def node3(state: SimpleState) -> dict:
-        return {"output": f"Done: {state.get('step2', '')}"}
-
-    # Build the graph
-    builder = StateGraph(SimpleState)
-    builder.add_node("node1", node1)
-    builder.add_node("node2", node2)
-    builder.add_node("node3", node3)
-    builder.add_edge("node1", "node2")
-    builder.add_edge("node2", "node3")
-    builder.add_edge("node3", END)
-    builder.set_entry_point("node1")
-
-    linear_g = builder.compile()
+    linear_g = create_linear_graph()
 
     try:
         result_g = linear_g.invoke({"input": graph_input.value})
     except Exception as e:
         result_g = {"error": str(e)}
 
-    graph_diagram = mo.mermaid("""
-    graph LR
-        START([START]) --> Node1[node1: Add Step1]
-        Node1 --> Node2[node2: Add Step2]
-        Node2 --> Node3[node3: Generate Output]
-        Node3 --> END([END])
-        style START fill:#e1f5ff
-        style Node1 fill:#90EE90
-        style Node2 fill:#87CEEB
-        style Node3 fill:#FFB6C1
-        style END fill:#D3D3D3
-    """)
-
     mo.vstack([
         mo.md("## Your First LangGraph: Linear Workflow"),
-        mo.md("_Build a simple 3-node sequential graph and see it in action!_"),
+        mo.md("_Let's build a simple 3-node sequential graph!_"),
         mo.md(""),
-        graph_diagram,
-        mo.md(""),
-        mo.md("""
-        ### Node Definitions (Modify to change behavior!)
-
-        ```python
-        def node1(state):
-            return {"step1": f"{node1_transform.value}: {state['input']}"}
-
-        def node2(state):
-            return {"step2": f"{node2_transform.value}: {state['step1']}"}
-
-        def node3(state):
-            return {"output": f"Done: {state['step2']}"}
-        ```
+        mo.mermaid("""
+        graph LR
+            START([START]) --> Node1[node1]
+            Node1 --> Node2[node2]
+            Node2 --> Node3[node3]
+            Node3 --> END([END])
         """),
-        mo.md("### 🎨 Customize Node Behavior:"),
-        mo.hstack([node1_transform, node2_transform]),
-        mo.md(""),
+        mo.md("### Try It Live!"),
         graph_input,
         mo.md(""),
         mo.md(f"""
@@ -473,11 +317,7 @@ def slide_5_graph_content(mo, graph_input, node1_transform, node2_transform, Sta
         - Step 1: `{result_g.get('step1', 'N/A')}`
         - Step 2: `{result_g.get('step2', 'N/A')}`
         - Output: `{result_g.get('output', 'N/A')}`
-        """),
-        mo.callout(
-            "**Try it!** Change the node prefixes above and see how the output changes!",
-            kind="success"
-        )
+        """)
     ])
 
 
@@ -517,27 +357,7 @@ It's useful because it enables complex workflows with cycles, conditional branch
         mo.md("## Adding Intelligence: LLM Integration"),
         mo.md("_Integrate language models into your graph nodes._"),
         mo.md(""),
-        mo.md("""
-        ### LLM Node Pattern
-
-        ```python
-        from langchain_openai import ChatOpenAI
-        from langchain_core.messages import HumanMessage
-
-        def llm_node(state: MyState) -> dict:
-            \"\"\"Node that calls an LLM.\"\"\"
-            question = state["question"]
-
-            # Call LLM
-            llm = ChatOpenAI(model="gpt-4")
-            response = llm.invoke([HumanMessage(content=question)])
-
-            # Return state update
-            return {"answer": response.content}
-        ```
-        """),
-        mo.md("### Try It!"),
-        mo.hstack([mock_mode_llm, mo.md(f"_{'Mock mode' if mock_mode_llm.value else '🌐 Real OpenAI API'}_")]),
+        mo.hstack([mock_mode_llm, mo.md(f"_{'Mock mode' if mock_mode_llm.value else 'Real OpenAI API'}_")]),
         question_llm,
         mo.md(""),
         mo.md("**Answer:**"),
@@ -598,56 +418,17 @@ def slide_7_routing_content(mo, question_type_ui, user_question_ui, use_mock_rou
     route_type = question_type_ui.value
     if route_type == "math":
         response_routing = handle_math_q(user_question_ui.value)
-        active_path = "C"
     else:
         response_routing = handle_general_q(user_question_ui.value, use_mock_routing_ui.value)
-        active_path = "D"
-
-    routing_diagram = mo.mermaid(f"""
-    graph LR
-        A[Input Question] --> B[Classify]
-        B -->|Math| C[Calculator]
-        B -->|General| D[LLM]
-        C --> E[Response]
-        D --> E
-        style {active_path} fill:#90EE90,stroke:#2d5016,stroke-width:3px
-        style E fill:#FFE4B5
-    """)
 
     mo.vstack([
         mo.md("## Conditional Routing: Intelligent Decision Making"),
         mo.md("_Route execution dynamically based on input classification._"),
         mo.md(""),
-        routing_diagram,
-        mo.md(""),
-        mo.md("""
-        ### Router Function
-
-        ```python
-        def router(state: MyState) -> str:
-            \"\"\"Decide which node to execute next.\"\"\"
-            question_type = classify(state["question"])
-
-            if question_type == "math":
-                return "calculator"  # Route to calculator
-            else:
-                return "llm"  # Route to LLM
-
-        # Add conditional edge
-        builder.add_conditional_edges("classify", router, {
-            "calculator": "calculator",
-            "llm": "llm"
-        })
-        ```
-        """),
         mo.hstack([question_type_ui, use_mock_routing_ui]),
         user_question_ui,
         mo.md(""),
-        mo.md(f"**Response:** {response_routing}"),
-        mo.callout(
-            f"Routed to: **{'Calculator' if route_type == 'math' else 'LLM'}** (highlighted in green)",
-            kind="info"
-        )
+        mo.md(f"**Response:** {response_routing}")
     ])
 
 
@@ -689,47 +470,11 @@ def slide_8_tools_content(mo, tool_choice_ui, tool_input_ui, tool):
         mo.md("## Tools: Extending Agent Capabilities"),
         mo.md("_Tools are functions that agents can invoke._"),
         mo.md(""),
-        mo.md("""
-        ### Defining a Tool
-
-        ```python
-        from langchain_core.tools import tool
-
-        @tool
-        def calculator(expression: str) -> str:
-            \"\"\"Evaluate a mathematical expression.\"\"\"
-            result = eval(expression)
-            return f"Result: {result}"
-
-        @tool
-        def web_search(query: str) -> str:
-            \"\"\"Search the web for information.\"\"\"
-            # Your search logic here
-            return search_results
-        ```
-
-        ### Using Tools in Agents
-
-        ```python
-        # Bind tools to LLM
-        tools = [calculator, web_search]
-        llm = ChatOpenAI(model="gpt-4").bind_tools(tools)
-
-        def agent_node(state):
-            response = llm.invoke(state["messages"])
-            # Agent decides whether to call tool
-            if response.tool_calls:
-                results = execute_tools(response.tool_calls)
-                return {"messages": results}
-            return {"messages": [response]}
-        ```
-        """),
-        mo.md("### Try It!"),
         mo.hstack([tool_choice_ui, tool_input_ui]),
         mo.md(""),
         mo.md(f"**Tool Output:** `{tool_result}`"),
         mo.callout(
-            "In real agents, the LLM decides *when* and *how* to use tools!",
+            "In real agents, the LLM decides when to use tools!",
             kind="success"
         )
     ])
@@ -749,214 +494,489 @@ def slide_9_react_content(mo, max_iterations_ui, use_mock_react_ui, create_react
 
     react_g = create_react_graph(max_iter=max_iterations_ui.value, mock_mode=use_mock_react_ui.value)
 
-    react_diagram = mo.mermaid("""
-    graph LR
-        A[Reason] --> B{Should Continue?}
-        B -->|Yes| C[Use Tool]
-        B -->|No| D[END]
-        C --> E[Observe Result]
-        E --> A
-        style A fill:#FFE4B5
-        style B fill:#D3D3D3
-        style C fill:#90EE90
-        style E fill:#87CEEB
-        style D fill:#FFB6C1
-    """)
-
     mo.vstack([
         mo.md("## Cycles & Loops: The ReAct Pattern"),
-        mo.md("_Iterative reasoning with feedback loops - the foundation of agentic behavior._"),
+        mo.md("_Iterative reasoning with feedback loops._"),
         mo.md(""),
-        react_diagram,
+        mo.md("**ReAct** = **Reason** + **Act** + **Observe**"),
         mo.md(""),
-        mo.md("""
-        **ReAct** = **Reason** + **Act** + **Observe**
-
-        ### How It Works
-
-        ```python
-        def reason_node(state):
-            \"\"\"Agent thinks about what to do.\"\"\"
-            llm = ChatOpenAI(model="gpt-4")
-            response = llm.invoke(state["messages"])
-            return {"messages": [response]}
-
-        def should_continue(state) -> str:
-            \"\"\"Decide: continue, use tool, or finish.\"\"\"
-            last_message = state["messages"][-1]
-
-            if last_message.tool_calls:
-                return "use_tool"
-            elif state["iterations"] >= state["max_iterations"]:
-                return "finish"
-            else:
-                return "reason"
-
-        def tool_node(state):
-            \"\"\"Execute tools and return results.\"\"\"
-            results = execute_tools(last_message.tool_calls)
-            return {"messages": results}
-
-        # Build graph with cycle
-        builder.add_conditional_edges("reason", should_continue, {
-            "reason": "reason",      # Loop back!
-            "use_tool": "use_tool",
-            "finish": END
-        })
-        builder.add_edge("use_tool", "reason")  # Cycle!
-        ```
-
-        Cycles enable iterative refinement and multi-step reasoning.
+        mo.mermaid("""
+        graph LR
+            A[Reason] --> B{Continue?}
+            B -->|Yes| C[Use Tool]
+            B -->|No| D[END]
+            C --> E[Observe]
+            E --> A
         """),
-        mo.md("### Configure ReAct"),
+        mo.md(""),
+        mo.md("Cycles enable iterative refinement and multi-step reasoning."),
+        mo.md(""),
         max_iterations_ui,
         use_mock_react_ui,
-        mo.md(""),
         mo.callout(
-            f"Graph configured with max {max_iterations_ui.value} iterations. The agent will reason → act → observe → repeat!",
+            f"Graph configured with max {max_iterations_ui.value} iterations.",
             kind="info"
         )
     ])
 
 
 @app.cell
-def slide_10_pipeline_architecture(mo):
-    """Cell 10: Data Pipeline Architecture."""
+def slide_10_multi_tool_ui(mo):
+    """Cell 10a: Enhanced Multi-Tool Routing - Create UI elements."""
+    tool_selector = mo.ui.dropdown(
+        options=["calculator", "string_reverser", "word_counter", "text_transformer"],
+        value="calculator",
+        label="Select tool:"
+    )
+    tool_input_field = mo.ui.text(
+        value="25 * 4",
+        label="Input:"
+    )
+    return tool_selector, tool_input_field
 
-    pipeline_diagram = mo.mermaid("""
-    graph LR
-        A[Load Data] --> B[Analyze]
-        B --> C[Generate Insights]
-        C --> D[Visualize]
-        D --> E[END]
-        style A fill:#FFE4B5
-        style B fill:#87CEEB
-        style C fill:#90EE90
-        style D fill:#FFB6C1
-        style E fill:#D3D3D3
-    """)
 
-    mo.vstack([
-        mo.md("## Real-World Example: Data Analysis Pipeline"),
-        mo.md("_A complete workflow that loads data, analyzes it, generates AI insights, and visualizes results._"),
+@app.cell
+def slide_10_multi_tool_content(mo, tool_selector, tool_input_field, create_multi_tool_graph):
+    """Cell 10b: Enhanced Multi-Tool Routing - Execute and display."""
+
+    multi_tool_graph = create_multi_tool_graph()
+
+    try:
+        result_multi_tool = multi_tool_graph.invoke({
+            "input": tool_input_field.value,
+            "selected_tool": tool_selector.value
+        })
+        output = result_multi_tool.get("output", "No output")
+    except Exception as e:
+        output = f"Error: {str(e)}"
+
+    return mo.vstack([
+        mo.md("## Example 1: Enhanced Multi-Tool Routing"),
+        mo.md("_Conditional routing with 4 different tools - the graph routes to the selected tool._"),
         mo.md(""),
-        pipeline_diagram,
+        mo.md("### Graph Structure"),
+        mo.md(""),
+        mo.mermaid("""
+        graph LR
+            START([START]) --> Router{Router}
+            Router -->|calculator| Calc[Calculator]
+            Router -->|string_reverser| Rev[String Reverser]
+            Router -->|word_counter| Count[Word Counter]
+            Router -->|text_transformer| Trans[Text Transformer]
+            Calc --> END([END])
+            Rev --> END
+            Count --> END
+            Trans --> END
+
+            style Router fill:#ffd700
+            style Calc fill:#90EE90
+            style Rev fill:#90EE90
+            style Count fill:#90EE90
+            style Trans fill:#90EE90
+        """),
+        mo.md(""),
+        mo.md("### Try It!"),
+        mo.hstack([tool_selector, tool_input_field]),
+        mo.md(""),
+        mo.md(f"**Result:** `{output}`"),
         mo.md(""),
         mo.md("""
-        ### Pipeline Stages
+        ### Key Code
 
-        #### 1. **Load Data** Node
         ```python
-        def load_data(state):
-            df = pd.read_csv("data.csv")
-            return {"data": df}
-        ```
+        # Define tools
+        @tool
+        def calculator(expression: str) -> str:
+            \"\"\"Evaluate a mathematical expression.\"\"\"
+            return str(eval(expression))
 
-        #### 2. **Analyze** Node
-        ```python
-        def analyze(state):
-            df = state["data"]
-            stats = {
-                "total_revenue": df["revenue"].sum(),
-                "top_product": df.groupby("product")["revenue"].sum().idxmax(),
-                # ... more stats
-            }
-            return {"stats": stats}
-        ```
+        @tool
+        def string_reverser(text: str) -> str:
+            \"\"\"Reverse a string.\"\"\"
+            return text[::-1]
 
-        #### 3. **Generate Insights** Node
-        ```python
-        def generate_insights(state):
-            stats = state["stats"]
-            llm = ChatOpenAI(model="gpt-4")
-            prompt = f"Analyze: {stats}"
-            response = llm.invoke([HumanMessage(content=prompt)])
-            return {"insights": response.content}
-        ```
+        @tool
+        def word_counter(text: str) -> str:
+            \"\"\"Count words and characters.\"\"\"
+            words = len(text.split())
+            chars = len(text)
+            return f"Words: {words}, Characters: {chars}"
 
-        #### 4. **Visualize** Node
-        ```python
-        def visualize(state):
-            df = state["data"]
-            fig = px.bar(df.groupby("product")["revenue"].sum())
-            return {"chart": fig}
-        ```
+        @tool
+        def text_transformer(text: str) -> str:
+            \"\"\"Transform text case.\"\"\"
+            return f"Upper: {text.upper()} | Lower: {text.lower()} | Title: {text.title()}"
 
-        **Next slide**: See the full implementation in action!
+        # Router function
+        def router(state) -> str:
+            return state["selected_tool"]
+
+        # Build graph
+        builder.add_conditional_edges("router", router, {
+            "calculator": "calculator_node",
+            "string_reverser": "string_reverser_node",
+            "word_counter": "word_counter_node",
+            "text_transformer": "text_transformer_node"
+        })
+        ```
         """)
     ])
 
 
 @app.cell
-def slide_11_pipeline_ui(mo):
-    """Cell 11a: Data Pipeline - Create UI elements."""
-    use_sample_data_ui = mo.ui.checkbox(value=True, label="Use sample data")
-    use_mock_insights_ui = mo.ui.checkbox(value=True, label="Mock mode (no API)")
-    return use_sample_data_ui, use_mock_insights_ui
+def slide_11_llm_agent_ui(mo):
+    """Cell 11a: LLM Agent with Dynamic Tool Selection - Create UI elements."""
+    agent_question = mo.ui.text_area(
+        value="What is 127 * 45?",
+        label="Ask a question (the LLM will choose the right tool):",
+        rows=3
+    )
+    use_mock_agent = mo.ui.checkbox(value=True, label="Mock mode (no API)")
+    return agent_question, use_mock_agent
 
 
 @app.cell
-def slide_11_pipeline_content(
-    mo, use_sample_data_ui, use_mock_insights_ui, os,
-    create_data_pipeline, create_revenue_chart,
-    create_product_comparison, create_region_chart, create_stats_table
-):
-    """Cell 11b: Data Pipeline - Execute and display."""
+def slide_11_llm_agent_content(mo, agent_question, use_mock_agent, create_llm_tool_agent):
+    """Cell 11b: LLM Agent with Dynamic Tool Selection - Execute and display."""
 
-    sample_path_val = os.path.join(os.path.dirname(__file__), "examples", "sample_data.csv")
-    pipeline_val = create_data_pipeline(
-        mock_mode=use_mock_insights_ui.value,
-        sample_data_path=sample_path_val if use_sample_data_ui.value else None
-    )
+    llm_agent_graph = create_llm_tool_agent(mock_mode=use_mock_agent.value)
 
     try:
-        pipeline_result = pipeline_val.invoke({})
-        df_val = pipeline_result.get("data")
-        stats_val = pipeline_result.get("stats", {})
-        insights_val = pipeline_result.get("insights", "No insights")
-
-        if df_val is not None and not df_val.empty:
-            rev_chart = create_revenue_chart(df_val, chart_type="bar")
-            prod_chart = create_product_comparison(df_val)
-            reg_chart = create_region_chart(df_val)
-            stats_tbl = create_stats_table(stats_val)
-        else:
-            rev_chart = None
-            prod_chart = None
-            reg_chart = None
-            stats_tbl = "_No data_"
+        result_llm_agent = llm_agent_graph.invoke({"question": agent_question.value})
+        tool_used = result_llm_agent.get("tool_to_use", "None")
+        tool_result_agent = result_llm_agent.get("tool_result", "")
+        final_answer = result_llm_agent.get("final_answer", "No answer")
     except Exception as e:
-        df_val = None
-        insights_val = f"Error: {str(e)}"
-        rev_chart = None
-        prod_chart = None
-        reg_chart = None
-        stats_tbl = f"_Error: {str(e)}_"
+        tool_used = "Error"
+        tool_result_agent = ""
+        final_answer = f"Error: {str(e)}"
 
-    mo.vstack([
-        mo.md("## Data Analysis Pipeline: Live Demo"),
-        mo.md("_Full implementation with interactive controls._"),
+    return mo.vstack([
+        mo.md("## Example 2: LLM Agent with Dynamic Tool Selection"),
+        mo.md("_The LLM analyzes your question and automatically chooses the appropriate tool._"),
         mo.md(""),
-        mo.hstack([use_sample_data_ui, use_mock_insights_ui]),
+        mo.md("### Graph Structure"),
         mo.md(""),
-        mo.md(f"### 📊 Data: {len(df_val) if df_val is not None else 0} records"),
-        mo.md("### 📈 Statistics"),
-        mo.md(stats_tbl),
+        mo.mermaid("""
+        graph LR
+            START([START]) --> Classify[LLM Classify]
+            Classify --> Decision{Should Use Tool?}
+            Decision -->|Yes| Tool[Execute Tool]
+            Decision -->|No| Direct[Direct Response]
+            Tool --> Format[Format Response]
+            Format --> END([END])
+            Direct --> END
+
+            style Classify fill:#87CEEB
+            style Decision fill:#ffd700
+            style Tool fill:#90EE90
+            style Direct fill:#90EE90
+            style Format fill:#FFB6C1
+        """),
         mo.md(""),
-        mo.md("### 🤖 AI Insights"),
-        mo.md(insights_val),
+        mo.md("### Try It!"),
+        mo.hstack([use_mock_agent]),
+        agent_question,
         mo.md(""),
-        mo.md("### 📉 Visualizations"),
-        mo.ui.tabs({
-            "Revenue": mo.ui.plotly(rev_chart) if rev_chart else mo.md("_No data_"),
-            "Products": mo.ui.plotly(prod_chart) if prod_chart else mo.md("_No data_"),
-            "Regions": mo.ui.plotly(reg_chart) if reg_chart else mo.md("_No data_"),
+        mo.md(f"**LLM Selected Tool:** `{tool_used}`"),
+        mo.md(f"**Tool Result:** `{tool_result_agent}`") if tool_result_agent else mo.md(""),
+        mo.md(f"**Final Answer:** {final_answer}"),
+        mo.md(""),
+        mo.callout(
+            "💡 Try different questions: math ('What is 50/2?'), text ('Reverse hello'), counting ('Count words in: the quick brown fox'), or transformations ('Make HELLO lowercase')",
+            kind="info"
+        ),
+        mo.md(""),
+        mo.md("""
+        ### Key Code
+
+        ```python
+        def llm_classify_node(state):
+            \"\"\"LLM decides which tool to use.\"\"\"
+            llm = ChatOpenAI(model="gpt-4")
+            prompt = f\"\"\"Analyze this question and choose the best tool:
+
+Question: {state['question']}
+
+Tools available:
+- calculator: for math calculations
+- string_reverser: to reverse text
+- word_counter: to count words/characters
+- text_transformer: to change text case
+- none: if no tool needed
+
+Respond with ONLY the tool name.\"\"\"
+
+            response = llm.invoke([HumanMessage(content=prompt)])
+            tool_name = response.content.strip().lower()
+            return {"tool_to_use": tool_name}
+
+        def should_use_tool(state) -> str:
+            \"\"\"Route based on LLM's decision.\"\"\"
+            valid_tools = ["calculator", "string_reverser", "word_counter", "text_transformer"]
+            if state["tool_to_use"] in valid_tools:
+                return "use_tool"
+            return "direct_response"
+
+        # Conditional routing based on LLM decision
+        builder.add_conditional_edges("classify", should_use_tool, {
+            "use_tool": "execute_tool",
+            "direct_response": "format_response"
         })
+        ```
+        """)
     ])
 
 
 @app.cell
-def slide_12_langsmith(mo):
+def slide_12_multi_step_ui(mo):
+    """Cell 12a: Multi-Step Reasoning - Create UI elements."""
+    complex_question = mo.ui.text_area(
+        value="Explain quantum computing and provide 3 real-world use cases",
+        label="Ask a complex question:",
+        rows=3
+    )
+    max_iterations = mo.ui.slider(start=1, stop=5, value=3, label="Max iterations:")
+    use_mock_multi_step = mo.ui.checkbox(value=True, label="Mock mode (no API)")
+    return complex_question, max_iterations, use_mock_multi_step
+
+
+@app.cell
+def slide_12_multi_step_content(mo, complex_question, max_iterations, use_mock_multi_step, create_multi_step_workflow):
+    """Cell 12b: Multi-Step Reasoning - Execute and display."""
+
+    multi_step_graph = create_multi_step_workflow(
+        mock_mode=use_mock_multi_step.value,
+        max_iter=max_iterations.value
+    )
+
+    try:
+        result_multi_step = multi_step_graph.invoke({"question": complex_question.value})
+        plan = result_multi_step.get("plan", "No plan")
+        research_notes = result_multi_step.get("research_notes", [])
+        synthesis = result_multi_step.get("synthesis", "No synthesis")
+        iteration_count = result_multi_step.get("iteration_count", 0)
+    except Exception as e:
+        plan = f"Error: {str(e)}"
+        research_notes = []
+        synthesis = ""
+        iteration_count = 0
+
+    return mo.vstack([
+        mo.md("## Example 3: Multi-Step Reasoning Workflow"),
+        mo.md("_Complex questions are broken down into steps, researched iteratively, then synthesized._"),
+        mo.md(""),
+        mo.md("### Graph Structure"),
+        mo.md(""),
+        mo.mermaid("""
+        graph LR
+            START([START]) --> Plan[Plan Steps]
+            Plan --> Research[Research]
+            Research --> Synthesize[Synthesize]
+            Synthesize --> Decision{Continue?}
+            Decision -->|Incomplete| Research
+            Decision -->|Complete/Max| END([END])
+
+            style Plan fill:#87CEEB
+            style Research fill:#90EE90
+            style Synthesize fill:#FFB6C1
+            style Decision fill:#ffd700
+        """),
+        mo.md(""),
+        mo.md("### Try It!"),
+        mo.hstack([max_iterations, use_mock_multi_step]),
+        complex_question,
+        mo.md(""),
+        mo.md(f"**Iterations:** {iteration_count} / {max_iterations.value}"),
+        mo.md(""),
+        mo.md("### 📋 Plan"),
+        mo.md(plan),
+        mo.md(""),
+        mo.md("### 🔬 Research Notes") if research_notes else mo.md(""),
+        mo.vstack([mo.md(f"{i+1}. {note}") for i, note in enumerate(research_notes)]) if research_notes else mo.md(""),
+        mo.md(""),
+        mo.md("### 📝 Final Synthesis"),
+        mo.md(synthesis),
+        mo.md(""),
+        mo.md("""
+        ### Key Code
+
+        ```python
+        def plan_node(state):
+            \"\"\"Break question into research steps.\"\"\"
+            llm = ChatOpenAI(model="gpt-4")
+            prompt = f\"\"\"Break this complex question into 3 specific research steps:
+
+Question: {state['question']}
+
+Return ONLY a numbered list of research steps.\"\"\"
+
+            response = llm.invoke([HumanMessage(content=prompt)])
+            return {"plan": response.content}
+
+        def research_node(state):
+            \"\"\"Research one step at a time.\"\"\"
+            llm = ChatOpenAI(model="gpt-4")
+            iteration = state["iteration_count"]
+            steps = state["plan"].split("\\n")
+
+            if iteration < len(steps):
+                step = steps[iteration]
+                prompt = f"Research this step: {step}"
+                response = llm.invoke([HumanMessage(content=prompt)])
+                return {
+                    "research_notes": [response.content],
+                    "iteration_count": iteration + 1
+                }
+            return {}
+
+        def should_continue(state) -> str:
+            \"\"\"Decide whether to continue research or finish.\"\"\"
+            if state["iteration_count"] >= state["max_iterations"]:
+                return "finish"
+            if len(state["research_notes"]) >= 3:  # Completed all steps
+                return "finish"
+            return "research"
+
+        # Cycle allows iterative refinement
+        builder.add_conditional_edges("synthesize", should_continue, {
+            "research": "research",
+            "finish": END
+        })
+        ```
+        """)
+    ])
+
+
+@app.cell
+def slide_13_multi_agent_ui(mo):
+    """Cell 13a: Multi-Agent Collaboration - Create UI elements."""
+    topic_input = mo.ui.text(
+        value="Benefits of using LangGraph for AI applications",
+        label="Topic to write about:"
+    )
+    max_revisions = mo.ui.slider(start=1, stop=3, value=2, label="Max revisions:")
+    use_mock_agents = mo.ui.checkbox(value=True, label="Mock mode (no API)")
+    return topic_input, max_revisions, use_mock_agents
+
+
+@app.cell
+def slide_13_multi_agent_content(mo, topic_input, max_revisions, use_mock_agents, create_multi_agent_graph):
+    """Cell 13b: Multi-Agent Collaboration - Execute and display."""
+
+    multi_agent_graph = create_multi_agent_graph(
+        mock_mode=use_mock_agents.value,
+        max_revisions=max_revisions.value
+    )
+
+    try:
+        result_multi_agent = multi_agent_graph.invoke({"topic": topic_input.value})
+        draft = result_multi_agent.get("draft", "No draft")
+        critic_feedback = result_multi_agent.get("critic_feedback", [])
+        revision_count = result_multi_agent.get("revision_count", 0)
+        approved = result_multi_agent.get("approved", False)
+    except Exception as e:
+        draft = f"Error: {str(e)}"
+        critic_feedback = []
+        revision_count = 0
+        approved = False
+
+    return mo.vstack([
+        mo.md("## Example 4: Multi-Agent Collaboration"),
+        mo.md("_Two LLMs with different roles (Writer & Critic) collaborate to produce quality content._"),
+        mo.md(""),
+        mo.md("### Graph Structure"),
+        mo.md(""),
+        mo.mermaid("""
+        graph LR
+            START([START]) --> Writer[Writer: Draft]
+            Writer --> Critic[Critic: Review]
+            Critic --> Decision{Approved?}
+            Decision -->|No + Can Revise| Revise[Writer: Revise]
+            Decision -->|Yes or Max Reached| END([END])
+            Revise --> Critic
+
+            style Writer fill:#87CEEB
+            style Critic fill:#FFB6C1
+            style Decision fill:#ffd700
+            style Revise fill:#87CEEB
+        """),
+        mo.md(""),
+        mo.md("### Try It!"),
+        mo.hstack([max_revisions, use_mock_agents]),
+        topic_input,
+        mo.md(""),
+        mo.md(f"**Status:** {'✅ Approved' if approved else f'🔄 Revisions: {revision_count}/{max_revisions.value}'}"),
+        mo.md(""),
+        mo.md("### ✍️ Current Draft"),
+        mo.md(draft),
+        mo.md(""),
+        mo.md("### 📝 Critic Feedback History") if critic_feedback else mo.md(""),
+        mo.vstack([
+            mo.callout(
+                f"**Round {i+1}:** {feedback}",
+                kind="success" if "APPROVED" in feedback.upper() else "warn"
+            )
+            for i, feedback in enumerate(critic_feedback)
+        ]) if critic_feedback else mo.md(""),
+        mo.md(""),
+        mo.md("""
+        ### Key Code
+
+        ```python
+        def writer_draft_node(state):
+            \"\"\"Writer agent creates content.\"\"\"
+            llm = ChatOpenAI(model="gpt-4", temperature=0.7)  # Creative
+            prompt = f\"\"\"You are a technical writer. Write a clear, concise explanation about:
+
+Topic: {state['topic']}
+
+Write 2-3 paragraphs.\"\"\"
+
+            draft = llm.invoke([HumanMessage(content=prompt)]).content
+            return {"draft": draft}
+
+        def critic_review_node(state):
+            \"\"\"Critic agent reviews and provides feedback.\"\"\"
+            llm = ChatOpenAI(model="gpt-4", temperature=0.3)  # Analytical
+            prompt = f\"\"\"You are a critic reviewing technical content.
+
+Draft: {state['draft']}
+
+Provide either:
+1. "APPROVED" if the draft is excellent
+2. Specific feedback for improvement
+
+Keep feedback concise.\"\"\"
+
+            feedback = llm.invoke([HumanMessage(content=prompt)]).content
+            approved = "APPROVED" in feedback.upper()
+
+            return {
+                "critic_feedback": [feedback],
+                "approved": approved
+            }
+
+        def should_revise(state) -> str:
+            \"\"\"Decide whether to revise or finish.\"\"\"
+            if state["approved"]:
+                return "finish"
+            elif state["revision_count"] >= state["max_revisions"]:
+                return "finish"
+            return "revise"
+
+        # Collaboration loop
+        builder.add_conditional_edges("critic", should_revise, {
+            "revise": "writer_revise",
+            "finish": END
+        })
+        ```
+        """)
+    ])
+
+
+@app.cell
+def slide_14_langsmith(mo):
     """Cell 12: LangSmith Observability."""
     mo.md("""
     ## Observability: LangSmith Tracing
@@ -987,8 +1007,8 @@ def slide_12_langsmith(mo):
 
 
 @app.cell
-def slide_13_advanced(mo):
-    """Cell 13: Advanced Patterns."""
+def slide_15_advanced(mo):
+    """Cell 15: Advanced Patterns."""
     mo.md("""
     ## Advanced Patterns & Next Steps
 
@@ -1016,8 +1036,8 @@ def slide_13_advanced(mo):
 
 
 @app.cell
-def slide_14_summary(mo):
-    """Cell 14: Summary & Next Steps."""
+def slide_16_summary(mo):
+    """Cell 16: Summary & Next Steps."""
     mo.md("""
     # 🎯 Key Takeaways
 
